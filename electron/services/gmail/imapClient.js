@@ -1,154 +1,100 @@
 const Imap = require("imap");
 const { simpleParser } = require("mailparser");
 
-// 🔥 SUBJECT PARSER
-function parseNikeEmail(subject) {
-  if (!subject) return null;
-
-  const clean = subject.replace("[NikeMPX]", "").trim();
-
-  const parts = clean.split("-");
-  const left = parts[0]?.trim() || "";
-  const environment = parts[1]?.trim() || "";
-
-  let status = "";
-  let process = "";
-
-  if (left.toLowerCase().includes("started")) {
-    status = "started";
-    process = left.replace(/started/i, "").trim();
-  } else if (left.toLowerCase().includes("completed")) {
-    status = "completed";
-    process = left.replace(/completed/i, "").trim();
-  } else if (left.toLowerCase().includes("failed")) {
-    status = "failed";
-    process = left.replace(/failed/i, "").trim();
-  } else {
-    process = left;
-  }
-
-  return {
-    project: "NikeMPX",
-    process,
-    status,
-    environment,
-  };
-}
-
-// 🔥 CLEAN BODY
-function cleanBody(text) {
+/**
+ * 🔥 BODY CLEANER (Removes "Outliers" and Noise)
+ * Targets signatures, "Sent from my iPhone", disclaimers, and big empty gaps.
+ */
+function cleanRawBody(text) {
   if (!text) return "";
 
   return text
-    .split("\n")
-    .map(line => line.trim())
-    .filter(line => line.length > 0)
-    .slice(0, 10)
-    .join(" ");
+    // 1. Remove "Sent from my iPhone/Android" footers
+    .replace(/(Sent from my|Get Outlook for).*/gi, "")
+    // 2. Remove common signature separators (e.g., --, ___, ===)
+    .split(/\n--\s*\n|\n[-=_]{3,}\n/)[0]
+    // 3. Remove common corporate disclaimers (adjust keywords as needed)
+    .split(/This email and any files transmitted/i)[0]
+    // 4. Collapse multiple newlines into a single clean break
+    .replace(/\n\s*\n/g, "\n")
+    // 5. Trim whitespace from start and end
+    .trim();
 }
 
-// 🔥 MAIN FUNCTION
 function fetchEmails() {
   return new Promise((resolve, reject) => {
     const imap = new Imap({
       user: "sanket.saurav@o9solutions.com",
-      password: "iyxj bfvs xkke losm", // ⚠️ app password
+      password: "iyxj bfvs xkke losm", 
       host: "imap.gmail.com",
       port: 993,
       tls: true,
-      tlsOptions: {
-        rejectUnauthorized: false, // ⚠️ dev only
-      },
+      tlsOptions: { rejectUnauthorized: false },
     });
 
     let emails = [];
 
-    // 🔥 IMPORTANT: OPEN ZIMPLE LABEL
-    function openZimple(cb) {
-      imap.openBox("zimple", true, cb); // ✅ your label
-      // If fails → try: "[Google Mail]/zimple"
-    }
-
     imap.once("ready", function () {
-      console.log("IMAP Connected ✅");
+      imap.openBox("zimple", true, (err, box) => {
+        if (err) return reject(err);
 
-      openZimple(function (err, box) {
-        if (err) {
-          console.error("❌ Error opening zimple:", err);
-          return reject(err);
-        }
+        // Fetching from specific senders only
+        const searchCriteria = [
+          'ALL',
+          ['OR', ['FROM', 'prodnike'], ['FROM', 'preprodnike']]
+        ];
 
-        const total = box.messages.total;
+        imap.search(searchCriteria, (err, results) => {
+          if (err || !results.length) {
+            imap.end();
+            return resolve([]);
+          }
 
-        if (!total || total < 1) {
-          console.log("No emails in zimple 📭");
-          imap.end();
-          return resolve([]);
-        }
+          const f = imap.fetch(results.slice(-50), { 
+            bodies: "", 
+            struct: true // Required to get metadata like size/flags
+          });
 
-        const start = Math.max(1, total - 2000);
-        const range = `${start}:${total}`;
+          f.on("message", (msg) => {
+            let attributes = {};
+            
+            // Get Server Metadata (Flags, UID, etc.)
+            msg.once("attributes", (attrs) => {
+              attributes = attrs;
+            });
 
-        console.log("📥 Fetching from ZIMPLE:", range);
+            msg.on("body", (stream) => {
+              simpleParser(stream, (err, parsed) => {
+                if (err) return;
 
-        const fetch = imap.seq.fetch(range, {
-          bodies: "",
-        });
-
-        fetch.on("message", function (msg) {
-          msg.on("body", function (stream) {
-            simpleParser(stream, (err, parsed) => {
-              if (err) return;
-
-              const sender =
-                parsed.from?.value?.[0]?.address?.toLowerCase() || "";
-
-              // 🔥 FILTER BY SENDER
-              if (
-                sender.includes("prodnike") ||
-                sender.includes("preprodnike")
-              ) {
-                const parsedData = parseNikeEmail(parsed.subject);
-
-                if (parsedData) {
-                  emails.push({
-                    ...parsedData,
-                    subject: parsed.subject || "",
-                    from: sender,
-                    date: parsed.date || "",
-                    body: cleanBody(parsed.text),
-                  });
-                }
-              }
+                emails.push({
+                  uid: attributes.uid,
+                  flags: attributes.flags,
+                  date: parsed.date,
+                  subject: parsed.subject || "(No Subject)",
+                  from: parsed.from?.text || "",
+                  to: parsed.to?.text || "",
+                  cc: parsed.cc?.text || "",
+                  // 🔥 Plain text only, cleaned of outliers
+                  body: cleanRawBody(parsed.text),
+                  // Count attachments without downloading them
+                  attachmentCount: parsed.attachments?.length || 0,
+                  messageId: parsed.messageId
+                });
+              });
             });
           });
-        });
 
-        fetch.once("end", function () {
-          console.log("Emails fetched count:", emails.length);
-
-          // 🔥 Sort latest first
-          emails.sort(
-            (a, b) => new Date(b.date) - new Date(a.date)
-          );
-
-          console.log("Fetched Emails 🔥:", emails);
-
-          imap.end();
-          resolve(emails);
+          f.once("end", () => {
+            emails.sort((a, b) => new Date(b.date) - new Date(a.date));
+            imap.end();
+          });
         });
       });
     });
 
-    imap.once("error", function (err) {
-      console.error("IMAP Error ❌", err);
-      reject(err);
-    });
-
-    imap.once("end", function () {
-      console.log("IMAP connection closed 🔚");
-    });
-
+    imap.once("error", (err) => reject(err));
+    imap.once("end", () => resolve(emails));
     imap.connect();
   });
 }
