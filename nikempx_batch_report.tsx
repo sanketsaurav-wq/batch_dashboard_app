@@ -1,0 +1,702 @@
+import { useState, useMemo } from "react";
+
+/* ── palette ── */
+const C = {
+  bg:"#0b0e18", s1:"#131929", s2:"#1a2236", s3:"#202a40",
+  b1:"rgba(255,255,255,0.06)", b2:"rgba(255,255,255,0.11)",
+  text:"#eef1fa", muted:"#7e8fa8", hint:"#46536a",
+  weekly:"#4e9eff", wDim:"rgba(78,158,255,0.13)",
+  mid:"#34d399",   mDim:"rgba(52,211,153,0.12)",
+  del:"#f87171",   dDim:"rgba(248,113,113,0.13)",
+  ok:"#4ade80",    oDim:"rgba(74,222,128,0.11)",
+  egress:"#a78bfa",eDim:"rgba(167,139,250,0.12)",
+  pp:"#fb923c",    pDim:"rgba(251,146,60,0.12)",
+  accent:"#6366f1",
+};
+
+const fmtM = m => !m ? "—" : m>=60 ? `${Math.floor(m/60)}h ${m%60}m` : `${m}m`;
+const hms  = s => { const [h,m] = s.split(":").map(Number); return h*60+m; };
+
+/* ── raw data from Gmail ── */
+const RAW = [
+  // ── Weekly Prod ──
+  { id:"w-315-prod", runDate:"2026-03-15", batchType:"Weekly", env:"Prod",
+    emailDate:"Sun, 15 Mar 2026 19:43:43 +0000",
+    valDate:"Sun, 15 Mar 2026 19:23:22 +0000",
+    totalStr:"16:38:18", totalMins:998,
+    egress:{ start:"Mar 15 · ~17:00 UTC", end:"Mar 15 · ~18:13 UTC", durMins:73, note:"Egress completed before digest; SSIS digest began after egress." },
+    tasks:[
+      {n:"Loading data to staging",   cur:"00:17:13", prev:"00:17:53", diff:"0 Less"},
+      {n:"Population Dim/Fact tables",cur:"00:16:31", prev:"00:17:01", diff:"1 Less"},
+      {n:"Generation Dim/Fact files", cur:"00:05:03", prev:"00:05:15", diff:"0 Less"},
+      {n:"Pre Processing",            cur:"01:16:32", prev:"01:10:29", diff:"6 More"},
+      {n:"Upload Dim/Fact files",     cur:"00:19:56", prev:"00:22:31", diff:"3 Less"},
+      {n:"mPower – Create Network",   cur:"00:18:07", prev:"00:18:09", diff:"0 Less"},
+      {n:"mPower – Demand Priority",  cur:"00:13:07", prev:"00:14:07", diff:"1 Less"},
+      {n:"PreRun0Processing",         cur:"00:24:07", prev:"00:24:08", diff:"0 Less"},
+      {n:"UnconstraintMaterialPlan",  cur:"06:11:25", prev:"06:06:24", diff:"5 More"},
+      {n:"PostRun0Processing",        cur:"00:20:07", prev:"00:20:08", diff:"0 Less"},
+      {n:"Save After SCS RUN1",       cur:"01:02:09", prev:"01:02:10", diff:"0 Less"},
+      {n:"UnconstraintRun 1",         cur:"00:05:06", prev:"00:06:07", diff:"1 Less"},
+      {n:"PreRun2Processing",         cur:"00:26:07", prev:"00:26:07", diff:"0"},
+      {n:"RunBasicPlan",              cur:"01:35:10", prev:"01:37:11", diff:"2 Less"},
+      {n:"FinalRun",                  cur:"02:04:12", prev:"02:06:12", diff:"2 Less"},
+      {n:"PostRun3Processing",        cur:"00:30:08", prev:"00:31:08", diff:"1 Less"},
+      {n:"Save After SCS",            cur:"00:28:08", prev:"00:26:08", diff:"2 More"},
+      {n:"VVD Upload",                cur:"00:14:14", prev:"00:15:14", diff:"1 Less"},
+      {n:"Weekly Version",            cur:"00:05:20", prev:"00:05:45", diff:"0 Less"},
+    ]
+  },
+  { id:"w-308-prod", runDate:"2026-03-08", batchType:"Weekly", env:"Prod",
+    emailDate:"Sun, 8 Mar 2026 18:55:16 +0000",
+    valDate:"Sun, 8 Mar 2026 18:33:28 +0000",
+    totalStr:"16:35:32", totalMins:995,
+    egress:{ start:"Mar 08 · ~16:13 UTC", end:"Mar 08 · ~18:13 UTC", durMins:120, note:"Egress + SSIS digest completed. t3_chems pipeline: started 06:58, ended 07:48 AM." },
+    tasks:[
+      {n:"Loading data to staging",   cur:"00:17:53", prev:"00:17:13", diff:"0 More"},
+      {n:"Population Dim/Fact tables",cur:"00:17:01", prev:"00:16:31", diff:"1 More"},
+      {n:"Generation Dim/Fact files", cur:"00:05:15", prev:"00:05:03", diff:"0 More"},
+      {n:"Pre Processing",            cur:"01:10:29", prev:"01:16:32", diff:"6 Less"},
+      {n:"Upload Dim/Fact files",     cur:"00:22:31", prev:"00:19:56", diff:"3 More"},
+      {n:"mPower – Create Network",   cur:"00:18:09", prev:"00:18:07", diff:"0 More"},
+      {n:"mPower – Demand Priority",  cur:"00:14:07", prev:"00:13:07", diff:"1 More"},
+      {n:"PreRun0Processing",         cur:"00:24:08", prev:"00:24:07", diff:"0 More"},
+      {n:"UnconstraintMaterialPlan",  cur:"06:06:24", prev:"06:11:25", diff:"5 Less"},
+      {n:"PostRun0Processing",        cur:"00:20:08", prev:"00:20:07", diff:"0 More"},
+      {n:"Save After SCS RUN1",       cur:"01:02:10", prev:"01:02:09", diff:"0 More"},
+      {n:"UnconstraintRun 1",         cur:"00:06:07", prev:"00:05:06", diff:"1 More"},
+      {n:"PreRun2Processing",         cur:"00:26:07", prev:"00:26:07", diff:"0"},
+      {n:"RunBasicPlan",              cur:"01:37:11", prev:"01:35:10", diff:"2 More"},
+      {n:"FinalRun",                  cur:"02:06:12", prev:"02:04:12", diff:"2 More"},
+      {n:"PostRun3Processing",        cur:"00:31:08", prev:"00:30:08", diff:"1 More"},
+      {n:"Save After SCS",            cur:"00:26:08", prev:"00:28:08", diff:"2 Less"},
+      {n:"VVD Upload",                cur:"00:15:14", prev:"00:14:14", diff:"1 More"},
+      {n:"Weekly Version",            cur:"00:05:45", prev:"00:05:20", diff:"0 More"},
+    ]
+  },
+  { id:"w-301-prod", runDate:"2026-03-01", batchType:"Weekly", env:"Prod",
+    emailDate:"Sun, 1 Mar 2026 19:36:11 +0000",
+    valDate:"Sun, 1 Mar 2026 19:13:08 +0000",
+    totalStr:"18:00:00", totalMins:1080, delayed:true,
+    egress:{ start:"Mar 01 · ~17:31 UTC", end:"Mar 01 · ~22:13 UTC", durMins:282, note:"Egress in process at 17:31 UTC. SLA missed — digest generation delayed. SSIS digest took ~4h post egress." },
+    tasks:[
+      {n:"Loading data to staging",   cur:"00:18:21", prev:"00:17:53", diff:"0 More"},
+      {n:"VVD Upload",                cur:"00:12:13", prev:"00:12:15", diff:"0 Less"},
+      {n:"Weekly Version",            cur:"05:50:00", prev:"—",        diff:"—"},
+    ]
+  },
+  { id:"w-222-prod", runDate:"2026-02-22", batchType:"Weekly", env:"Prod",
+    emailDate:"Mon, 23 Feb 2026 00:44:55 +0000",
+    valDate:"Sun, 22 Feb 2026 23:12:50 +0000",
+    totalStr:"17:10:00", totalMins:1030,
+    egress:{ start:"Feb 22 · ~16:00 UTC", end:"Feb 22 · ~18:00 UTC", durMins:120, note:"Egress and digest completed as part of normal run." },
+    tasks:[
+      {n:"Loading data to staging",   cur:"00:52:40", prev:"00:35:10", diff:"17 More"},
+      {n:"Pre Processing",            cur:"01:10:00", prev:"01:00:00", diff:"10 More"},
+      {n:"UnconstraintMaterialPlan",  cur:"06:00:00", prev:"05:50:00", diff:"10 More"},
+    ]
+  },
+  // ── Weekly PreProd ──
+  { id:"w-315-pp", runDate:"2026-03-15", batchType:"Weekly", env:"PreProd",
+    emailDate:"Sun, 15 Mar 2026 18:09:47 +0000",
+    valDate:"Sun, 15 Mar 2026 17:50:50 +0000",
+    totalStr:"~15:30:00", totalMins:930,
+    egress:{ start:"Mar 15 · ~15:45 UTC", end:"Mar 15 · ~17:30 UTC", durMins:105, note:"PreProd egress completed before validation." },
+    tasks:[
+      {n:"Loading data to staging",   cur:"00:17:36", prev:"00:17:11", diff:"0 More"},
+      {n:"Pre Processing",            cur:"01:10:00", prev:"01:05:00", diff:"5 More"},
+      {n:"UnconstraintMaterialPlan",  cur:"05:50:00", prev:"05:40:00", diff:"10 More"},
+      {n:"RunBasicPlan",              cur:"01:30:00", prev:"01:28:00", diff:"2 More"},
+      {n:"VVD Upload",                cur:"00:12:13", prev:"00:12:15", diff:"0 Less"},
+      {n:"Weekly Version",            cur:"00:04:52", prev:"00:05:10", diff:"0 Less"},
+    ]
+  },
+  { id:"w-308-pp", runDate:"2026-03-08", batchType:"Weekly", env:"PreProd",
+    emailDate:"Sun, 8 Mar 2026 16:16:37 +0000",
+    valDate:"Sun, 8 Mar 2026 15:58:23 +0000",
+    totalStr:"~15:10:00", totalMins:910,
+    egress:{ start:"Mar 08 · ~13:58 UTC", end:"Mar 08 · ~15:45 UTC", durMins:107, note:"PreProd egress + digest completed normally." },
+    tasks:[
+      {n:"Loading data to staging",   cur:"00:17:31", prev:"00:17:36", diff:"0 Less"},
+      {n:"Population Dim/Fact tables",cur:"00:24:04", prev:"00:22:00", diff:"2 More"},
+      {n:"Pre Processing",            cur:"01:05:00", prev:"01:08:00", diff:"3 Less"},
+      {n:"VVD Upload",                cur:"00:12:15", prev:"00:12:13", diff:"0 More"},
+      {n:"Weekly Version",            cur:"00:05:10", prev:"00:04:52", diff:"0 More"},
+    ]
+  },
+  { id:"w-301-pp", runDate:"2026-03-01", batchType:"Weekly", env:"PreProd",
+    emailDate:"Sun, 1 Mar 2026 18:57:31 +0000",
+    valDate:"Sun, 1 Mar 2026 18:39:12 +0000",
+    totalStr:"~15:00:00", totalMins:900,
+    egress:{ start:"Mar 01 · ~16:39 UTC", end:"Mar 01 · ~18:30 UTC", durMins:111, note:"PreProd egress completed. Digest generation followed." },
+    tasks:[
+      {n:"VVD Upload",       cur:"00:12:13", prev:"00:12:15", diff:"0 Less"},
+      {n:"Weekly Version",   cur:"00:04:52", prev:"00:05:10", diff:"0 Less"},
+    ]
+  },
+  { id:"w-226-pp", runDate:"2026-02-26", batchType:"Weekly", env:"PreProd",
+    emailDate:"Fri, 27 Feb 2026 02:20:22 +0000",
+    valDate:"Fri, 27 Feb 2026 02:02:01 +0000",
+    totalStr:"~14:55:00", totalMins:895,
+    egress:{ start:"Feb 26 · ~23:55 UTC", end:"Feb 27 · ~01:50 UTC", durMins:115, note:"Egress and digest completed on schedule." },
+    tasks:[
+      {n:"VVD Upload",       cur:"00:12:15", prev:"00:12:13", diff:"0 More"},
+      {n:"Weekly Version",   cur:"00:04:52", prev:"00:05:00", diff:"0 Less"},
+    ]
+  },
+  // ── Midweek Prod ──
+  { id:"m-312-prod", runDate:"2026-03-12", batchType:"Midweek", env:"Prod",
+    emailDate:"Thu, 12 Mar 2026 13:14:47 +0000",
+    valDate:"Thu, 12 Mar 2026 13:14:47 +0000",
+    totalStr:"06:08:34", totalMins:368,
+    egress:{ start:"Mar 12 · ~12:45 UTC", end:"Mar 12 · ~13:05 UTC", durMins:20, note:"Short egress post midweek batch. VVD upload 3m17s." },
+    tasks:[
+      {n:"mPower Full Backup",    cur:"00:54:07", prev:"00:58:10", diff:"4 Less"},
+      {n:"PreRun2Processing",     cur:"00:12:06", prev:"00:12:07", diff:"0 Less"},
+      {n:"RunBasicPlan",          cur:"01:55:11", prev:"01:58:12", diff:"3 Less"},
+      {n:"FinalRun",              cur:"02:05:11", prev:"02:05:12", diff:"0 Less"},
+      {n:"PostRun3Processing",    cur:"00:28:07", prev:"00:28:08", diff:"0 Less"},
+      {n:"Save after SCS",        cur:"00:26:09", prev:"00:27:07", diff:"1 Less"},
+      {n:"VVD Upload",            cur:"00:03:17", prev:"00:04:13", diff:"1 Less"},
+    ]
+  },
+  { id:"m-310-prod", runDate:"2026-03-10", batchType:"Midweek", env:"Prod",
+    emailDate:"Tue, 10 Mar 2026 13:23:48 +0000",
+    valDate:"Tue, 10 Mar 2026 13:23:48 +0000",
+    totalStr:"06:17:34", totalMins:377,
+    egress:{ start:"Mar 10 · ~12:48 UTC", end:"Mar 10 · ~13:12 UTC", durMins:24, note:"Egress completed. VVD upload 4m13s." },
+    tasks:[
+      {n:"mPower Full Backup",    cur:"00:58:10", prev:"00:57:09", diff:"1 More"},
+      {n:"PreRun2Processing",     cur:"00:12:07", prev:"00:12:06", diff:"0 More"},
+      {n:"RunBasicPlan",          cur:"01:58:12", prev:"01:55:11", diff:"3 More"},
+      {n:"FinalRun",              cur:"02:05:12", prev:"02:05:11", diff:"0 More"},
+      {n:"PostRun3Processing",    cur:"00:28:08", prev:"00:28:07", diff:"0 More"},
+      {n:"Save after SCS",        cur:"00:27:07", prev:"00:26:09", diff:"1 More"},
+      {n:"VVD Upload",            cur:"00:04:13", prev:"00:03:17", diff:"1 More"},
+    ]
+  },
+  { id:"m-305-prod", runDate:"2026-03-05", batchType:"Midweek", env:"Prod",
+    emailDate:"Thu, 5 Mar 2026 14:17:59 +0000",
+    valDate:"Thu, 5 Mar 2026 14:17:59 +0000",
+    totalStr:"~06:16:00", totalMins:376,
+    egress:{ start:"Mar 05 · ~13:48 UTC", end:"Mar 05 · ~14:08 UTC", durMins:20, note:"Egress completed normally post midweek." },
+    tasks:[
+      {n:"mPower Full Backup",    cur:"00:57:09", prev:"00:59:06", diff:"2 Less"},
+      {n:"PreRun2Processing",     cur:"00:12:06", prev:"00:12:07", diff:"0 Less"},
+      {n:"RunBasicPlan",          cur:"01:56:00", prev:"01:58:12", diff:"2 Less"},
+      {n:"FinalRun",              cur:"02:05:00", prev:"02:05:12", diff:"0 Less"},
+      {n:"PostRun3Processing",    cur:"00:28:07", prev:"00:28:08", diff:"0 Less"},
+      {n:"Save after SCS",        cur:"00:26:09", prev:"00:27:07", diff:"1 Less"},
+      {n:"VVD Upload",            cur:"00:03:20", prev:"00:04:13", diff:"1 Less"},
+    ]
+  },
+  { id:"m-303-prod", runDate:"2026-03-03", batchType:"Midweek", env:"Prod",
+    emailDate:"Tue, 3 Mar 2026 14:16:48 +0000",
+    valDate:"Tue, 3 Mar 2026 14:16:48 +0000",
+    totalStr:"~06:00:00", totalMins:360,
+    egress:{ start:"Mar 03 · ~13:46 UTC", end:"Mar 03 · ~14:06 UTC", durMins:20, note:"Normal midweek egress." },
+    tasks:[
+      {n:"mPower Full Backup",    cur:"00:59:06", prev:"01:00:14", diff:"1 Less"},
+      {n:"PreRun2Processing",     cur:"00:12:07", prev:"00:12:06", diff:"0 More"},
+      {n:"RunBasicPlan",          cur:"01:55:00", prev:"01:58:12", diff:"3 Less"},
+      {n:"FinalRun",              cur:"02:04:00", prev:"02:05:12", diff:"1 Less"},
+      {n:"PostRun3Processing",    cur:"00:28:07", prev:"00:28:08", diff:"0 Less"},
+      {n:"Save after SCS",        cur:"00:25:09", prev:"00:27:07", diff:"2 Less"},
+    ]
+  },
+  { id:"m-226-prod", runDate:"2026-02-26", batchType:"Midweek", env:"Prod",
+    emailDate:"Thu, 26 Feb 2026 15:06:42 +0000",
+    valDate:"Thu, 26 Feb 2026 15:06:42 +0000",
+    totalStr:"~06:03:00", totalMins:363,
+    egress:{ start:"Feb 26 · ~14:46 UTC", end:"Feb 26 · ~15:00 UTC", durMins:14, note:"Egress and VVD upload completed." },
+    tasks:[
+      {n:"mPower Full Backup",    cur:"01:00:14", prev:"01:00:06", diff:"0 More"},
+    ]
+  },
+  { id:"m-224-prod", runDate:"2026-02-24", batchType:"Midweek", env:"Prod",
+    emailDate:"Tue, 24 Feb 2026 14:49:48 +0000",
+    valDate:"Tue, 24 Feb 2026 14:49:48 +0000",
+    totalStr:"~06:08:00", totalMins:368,
+    egress:{ start:"Feb 24 · ~14:29 UTC", end:"Feb 24 · ~14:44 UTC", durMins:15, note:"Midweek egress completed." },
+    tasks:[
+      {n:"mPower Full Backup",    cur:"01:00:06", prev:"00:52:09", diff:"8 More"},
+    ]
+  },
+  { id:"m-217-prod", runDate:"2026-02-17", batchType:"Midweek", env:"Prod",
+    emailDate:"Tue, 17 Feb 2026 13:38:48 +0000",
+    valDate:"Tue, 17 Feb 2026 13:38:48 +0000",
+    totalStr:"~06:00:00", totalMins:360,
+    egress:{ start:"Feb 17 · ~13:18 UTC", end:"Feb 17 · ~13:32 UTC", durMins:14, note:"Normal midweek egress." },
+    tasks:[
+      {n:"mPower Full Backup",    cur:"00:52:09", prev:"00:44:05", diff:"8 More"},
+    ]
+  },
+];
+
+/* derived fields */
+RAW.forEach(r => {
+  const ed = new Date(r.emailDate); const vd = new Date(r.valDate);
+  r.endTimeUTC  = vd.toUTCString().replace(" GMT","").replace(/.*?, /,"");
+  const startMs = ed.getTime() - r.totalMins*60000;
+  r.startTimeUTC= new Date(startMs).toUTCString().replace(" GMT","").replace(/.*?, /,"");
+  r.status = r.delayed ? "delayed" : "on-time";
+  r.dateTs = new Date(r.runDate).getTime();
+});
+
+/* ── sparkline ── */
+function Spark({ data, color, W=90, H=28 }) {
+  if (data.length < 2) return null;
+  const mn=Math.min(...data), mx=Math.max(...data), rng=mx-mn||1;
+  const pts = data.map((v,i)=>[(i/(data.length-1))*W, H-2-((v-mn)/rng)*(H-4)]);
+  const d = pts.map((p,i)=>`${i===0?"M":"L"}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(" ");
+  return (
+    <svg width={W} height={H} style={{display:"block"}}>
+      <path d={d} fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="round"/>
+      <circle cx={pts[pts.length-1][0]} cy={pts[pts.length-1][1]} r="2.5" fill={color}/>
+    </svg>
+  );
+}
+
+/* ── trend chart ── */
+function TrendChart({ runs }) {
+  const W=560,H=130,pL=44,pR=12,pT=8,pB=26;
+  const weekly  = [...runs].filter(r=>r.batchType==="Weekly").sort((a,b)=>a.dateTs-b.dateTs);
+  const midweek = [...runs].filter(r=>r.batchType==="Midweek").sort((a,b)=>a.dateTs-b.dateTs);
+  if (!weekly.length && !midweek.length) return <div style={{padding:20,textAlign:"center",color:C.hint,fontSize:12}}>No data in range</div>;
+  const allV=[...weekly,...midweek].map(r=>r.totalMins);
+  const mn=Math.min(...allV), mx=Math.max(...allV);
+  const toX=(i,arr)=>pL+(i/Math.max(arr.length-1,1))*(W-pL-pR);
+  const toY=v=>H-pB-((v-mn)/(mx-mn||1))*(H-pT-pB);
+  const line=arr=>arr.map((d,i)=>`${i===0?"M":"L"}${toX(i,arr).toFixed(1)},${toY(d.totalMins).toFixed(1)}`).join(" ");
+  const fill=arr=>arr.length<2?"":line(arr)+` L${toX(arr.length-1,arr).toFixed(1)},${H-pB} L${pL},${H-pB} Z`;
+  const yticks=[mn,Math.round((mn+mx)/2),mx];
+  const uid = Math.random().toString(36).slice(2,6);
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%",display:"block"}}>
+      <defs>
+        <linearGradient id={"gw"+uid} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={C.weekly} stopOpacity=".18"/><stop offset="100%" stopColor={C.weekly} stopOpacity="0"/></linearGradient>
+        <linearGradient id={"gm"+uid} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={C.mid} stopOpacity=".16"/><stop offset="100%" stopColor={C.mid} stopOpacity="0"/></linearGradient>
+      </defs>
+      {yticks.map((v,i)=>(
+        <g key={i}>
+          <line x1={pL} x2={W-pR} y1={toY(v)} y2={toY(v)} stroke="rgba(255,255,255,0.04)" strokeWidth="1"/>
+          <text x={pL-4} y={toY(v)+3.5} textAnchor="end" fontSize="9" fill={C.hint}>{fmtM(v)}</text>
+        </g>
+      ))}
+      {weekly.length>=2&&<><path d={fill(weekly)} fill={`url(#gw${uid})`}/><path d={line(weekly)} fill="none" stroke={C.weekly} strokeWidth="2" strokeLinejoin="round"/></>}
+      {midweek.length>=2&&<><path d={fill(midweek)} fill={`url(#gm${uid})`}/><path d={line(midweek)} fill="none" stroke={C.mid} strokeWidth="2" strokeLinejoin="round"/></>}
+      {weekly.map((d,i)=><circle key={i} cx={toX(i,weekly)} cy={toY(d.totalMins)} r="3.5" fill={C.weekly} stroke={C.s1} strokeWidth="1.5"/>)}
+      {midweek.map((d,i)=><circle key={i} cx={toX(i,midweek)} cy={toY(d.totalMins)} r="3.5" fill={C.mid} stroke={C.s1} strokeWidth="1.5"/>)}
+      {weekly.map((d,i)=><text key={i} x={toX(i,weekly)} y={H-pB+14} textAnchor="middle" fontSize="8.5" fill={C.hint}>{d.runDate.slice(5)}</text>)}
+    </svg>
+  );
+}
+
+/* ── task bar table ── */
+function TaskTable({ tasks, color }) {
+  if (!tasks?.length) return <div style={{padding:"12px 16px",color:C.hint,fontSize:12}}>No task data</div>;
+  const maxM = Math.max(...tasks.map(t=>hms(t.cur)));
+  return (
+    <div style={{overflowX:"auto"}}>
+      <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+        <thead>
+          <tr style={{background:C.s3}}>
+            {["Task","Current","Previous","Diff","Duration bar"].map(h=>(
+              <th key={h} style={{padding:"7px 12px",textAlign:"left",color:C.hint,fontWeight:500,fontSize:11,whiteSpace:"nowrap"}}>{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {tasks.map((t,i)=>{
+            const m=hms(t.cur); const pct=Math.round((m/maxM)*100);
+            const diffUp=t.diff.includes("More"); const diffDown=t.diff.includes("Less");
+            return (
+              <tr key={i} style={{borderTop:`1px solid ${C.b1}`}}>
+                <td style={{padding:"7px 12px",color:C.muted,whiteSpace:"nowrap",maxWidth:220,overflow:"hidden",textOverflow:"ellipsis"}}>{t.n}</td>
+                <td style={{padding:"7px 12px",color:C.text,fontVariantNumeric:"tabular-nums",whiteSpace:"nowrap"}}>{t.cur}</td>
+                <td style={{padding:"7px 12px",color:C.hint,fontVariantNumeric:"tabular-nums",whiteSpace:"nowrap"}}>{t.prev}</td>
+                <td style={{padding:"7px 12px",whiteSpace:"nowrap"}}>
+                  {t.diff==="0"||t.diff==="—"
+                    ? <span style={{color:C.hint}}>—</span>
+                    : <span style={{color:diffUp?C.del:C.ok,fontWeight:500}}>{diffUp?"▲":"▼"} {t.diff.replace(" More","").replace(" Less","m")}</span>
+                  }
+                </td>
+                <td style={{padding:"7px 12px",minWidth:120}}>
+                  <div style={{height:4,background:"rgba(255,255,255,0.06)",borderRadius:2}}>
+                    <div style={{width:`${pct}%`,height:"100%",background:color,borderRadius:2,opacity:.75}}/>
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/* ── egress panel ── */
+function EgressPanel({ eg }) {
+  if (!eg) return <div style={{padding:"12px 16px",color:C.hint,fontSize:12}}>No egress data</div>;
+  return (
+    <div style={{padding:"14px 16px"}}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:12}}>
+        {[{l:"Egress start",v:eg.start},{l:"Egress end",v:eg.end},{l:"Duration",v:fmtM(eg.durMins)}].map(e=>(
+          <div key={e.l} style={{background:C.s3,borderRadius:8,padding:"10px 14px"}}>
+            <div style={{fontSize:11,color:C.hint,marginBottom:4}}>{e.l}</div>
+            <div style={{fontSize:13,fontWeight:500,color:C.egress}}>{e.v}</div>
+          </div>
+        ))}
+      </div>
+      {eg.note && <div style={{fontSize:12,color:C.muted,lineHeight:1.65,padding:"9px 12px",background:C.s3,borderRadius:8}}>{eg.note}</div>}
+    </div>
+  );
+}
+
+/* ── run row ── */
+function RunRow({ run, isLast }) {
+  const [open, setOpen]     = useState(false);
+  const [tab,  setTab]      = useState("tasks");
+  const bColor = run.batchType==="Weekly" ? C.weekly : C.mid;
+  const envCol = run.env==="Prod" ? C.weekly : C.pp;
+  const isDelayed = run.status==="delayed";
+
+  return (
+    <div style={{borderBottom:isLast?"none":`1px solid ${C.b1}`}}>
+      {/* summary row */}
+      <div onClick={()=>setOpen(o=>!o)}
+        style={{display:"grid",gridTemplateColumns:"90px 72px 148px 148px 90px 68px 68px 24px",
+          gap:6,padding:"11px 16px",cursor:"pointer",transition:"background .12s"}}
+        onMouseEnter={e=>e.currentTarget.style.background=C.s2}
+        onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+        <div>
+          <div style={{fontSize:13,fontWeight:500,color:C.text}}>{run.runDate.slice(5)}</div>
+          <div style={{fontSize:10,color:C.hint}}>{new Date(run.runDate).toLocaleDateString("en-US",{weekday:"short"})}</div>
+        </div>
+        <div style={{display:"flex",alignItems:"center"}}>
+          <span style={{fontSize:11,padding:"2px 8px",borderRadius:20,fontWeight:500,
+            background:envCol+"22",color:envCol}}>{run.env}</span>
+        </div>
+        <div>
+          <div style={{fontSize:10,color:C.hint,marginBottom:1}}>Start</div>
+          <div style={{fontSize:11,color:C.muted}}>{run.startTimeUTC}</div>
+        </div>
+        <div>
+          <div style={{fontSize:10,color:C.hint,marginBottom:1}}>End / Validated</div>
+          <div style={{fontSize:11,color:C.muted}}>{run.endTimeUTC}</div>
+        </div>
+        <div>
+          <div style={{fontSize:13,fontWeight:500,color:C.text}}>{run.totalStr}</div>
+          <div style={{marginTop:4,height:3,background:"rgba(255,255,255,0.06)",borderRadius:2}}>
+            <div style={{width:`${Math.min(100,Math.round((run.totalMins/1200)*100))}%`,height:"100%",background:bColor,borderRadius:2,opacity:.65}}/>
+          </div>
+        </div>
+        <div style={{textAlign:"center"}}>
+          <span style={{fontSize:11,padding:"2px 8px",borderRadius:20,fontWeight:500,
+            background:run.batchType==="Weekly"?C.wDim:C.mDim,color:bColor}}>{run.batchType}</span>
+        </div>
+        <div style={{textAlign:"center"}}>
+          <span style={{fontSize:11,padding:"2px 8px",borderRadius:20,fontWeight:500,
+            background:isDelayed?C.dDim:C.oDim,color:isDelayed?C.del:C.ok}}>{isDelayed?"Delayed":"On time"}</span>
+        </div>
+        <div style={{textAlign:"center",color:C.hint,fontSize:11,
+          transform:open?"rotate(180deg)":"none",transition:"transform .2s",alignSelf:"center"}}>▼</div>
+      </div>
+
+      {/* expanded detail */}
+      {open && (
+        <div style={{background:C.s2,borderTop:`1px solid ${C.b1}`}}>
+          {/* sub-tabs */}
+          <div style={{display:"flex",gap:2,padding:"8px 16px 0",borderBottom:`1px solid ${C.b1}`}}>
+            {[{k:"tasks",l:"Batch runtime"},{k:"egress",l:"Egress"},{k:"summary",l:"Summary"}].map(s=>(
+              <button key={s.k} onClick={e=>{e.stopPropagation();setTab(s.k)}}
+                style={{background:tab===s.k?C.s3:"none",border:"none",color:tab===s.k?C.text:C.muted,
+                  borderRadius:8,padding:"5px 12px",fontSize:11,cursor:"pointer",fontFamily:"inherit",
+                  transition:"all .12s",fontWeight:tab===s.k?500:400}}>
+                {s.l}
+              </button>
+            ))}
+          </div>
+          {tab==="tasks"   && <TaskTable tasks={run.tasks} color={bColor}/>}
+          {tab==="egress"  && <EgressPanel eg={run.egress}/>}
+          {tab==="summary" && (
+            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,padding:"14px 16px"}}>
+              {[
+                {l:"Run date",      v:run.runDate},
+                {l:"Environment",   v:run.env},
+                {l:"Batch type",    v:run.batchType},
+                {l:"Total runtime", v:run.totalStr},
+                {l:"Start (UTC)",   v:run.startTimeUTC},
+                {l:"End (UTC)",     v:run.endTimeUTC},
+                {l:"Egress dur.",   v:fmtM(run.egress?.durMins)},
+                {l:"Status",        v:isDelayed?"Delayed ⚠":"On time ✓"},
+              ].map(c=>(
+                <div key={c.l} style={{background:C.s3,borderRadius:8,padding:"9px 12px"}}>
+                  <div style={{fontSize:11,color:C.hint,marginBottom:3}}>{c.l}</div>
+                  <div style={{fontSize:12,fontWeight:500,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.v}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── main ── */
+export default function App() {
+  const today     = new Date();
+  const monthAgo  = new Date(); monthAgo.setMonth(today.getMonth()-1);
+  const fmt = d => d.toISOString().slice(0,10);
+
+  const [from,    setFrom]    = useState(fmt(monthAgo));
+  const [to,      setTo]      = useState(fmt(today));
+  const [env,     setEnv]     = useState("all");
+  const [type,    setType]    = useState("all");
+  const [status,  setStatus]  = useState("all");
+  const [search,  setSearch]  = useState("");
+  const [sort,    setSort]    = useState("date-desc");
+  const [chartTab,setChartTab]= useState("trend");
+
+  const fromTs = new Date(from).getTime();
+  const toTs   = new Date(to).getTime() + 86400000;
+
+  const filtered = useMemo(()=>
+    RAW
+      .filter(r=>r.dateTs>=fromTs && r.dateTs<=toTs)
+      .filter(r=>env==="all"||r.env===env)
+      .filter(r=>type==="all"||r.batchType===type)
+      .filter(r=>status==="all"||r.status===status)
+      .filter(r=>!search||(r.runDate+r.env+r.batchType).toLowerCase().includes(search.toLowerCase()))
+      .sort((a,b)=>{
+        if(sort==="date-desc") return b.dateTs-a.dateTs;
+        if(sort==="date-asc")  return a.dateTs-b.dateTs;
+        if(sort==="dur-desc")  return b.totalMins-a.totalMins;
+        if(sort==="dur-asc")   return a.totalMins-b.totalMins;
+        return 0;
+      })
+  ,[from,to,env,type,status,search,sort]);
+
+  const wRuns  = filtered.filter(r=>r.batchType==="Weekly");
+  const mRuns  = filtered.filter(r=>r.batchType==="Midweek");
+  const wAvg   = wRuns.length ? Math.round(wRuns.reduce((a,r)=>a+r.totalMins,0)/wRuns.length) : 0;
+  const mAvg   = mRuns.length ? Math.round(mRuns.reduce((a,r)=>a+r.totalMins,0)/mRuns.length) : 0;
+  const delayed= filtered.filter(r=>r.status==="delayed").length;
+  const ontime = filtered.length - delayed;
+  const pct    = filtered.length ? Math.round((ontime/filtered.length)*100) : 0;
+  const wSpark = wRuns.slice().sort((a,b)=>a.dateTs-b.dateTs).map(r=>r.totalMins);
+  const mSpark = mRuns.slice().sort((a,b)=>a.dateTs-b.dateTs).map(r=>r.totalMins);
+
+  const ss = {fontFamily:"'Inter',system-ui,sans-serif"};
+  const pill = (txt,bg,col) => (
+    <span style={{fontSize:11,padding:"2px 9px",borderRadius:20,fontWeight:500,background:bg,color:col,display:"inline-block"}}>{txt}</span>
+  );
+  const sel = (val,onChange,opts) => (
+    <select value={val} onChange={e=>onChange(e.target.value)}
+      style={{background:C.s2,border:`1px solid ${C.b2}`,color:C.muted,borderRadius:8,padding:"6px 10px",
+        fontSize:12,fontFamily:"inherit",cursor:"pointer",outline:"none",colorScheme:"dark"}}>
+      {opts.map(([v,l])=><option key={v} value={v}>{l}</option>)}
+    </select>
+  );
+
+  return (
+    <div style={{...ss,background:C.bg,minHeight:"100vh",color:C.text,padding:"18px 14px 48px"}}>
+
+      {/* ── header ── */}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20,gap:12,flexWrap:"wrap"}}>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <div style={{width:34,height:34,borderRadius:9,background:"linear-gradient(135deg,#4e9eff,#6366f1)",
+            display:"flex",alignItems:"center",justifyContent:"center",fontSize:17,flexShrink:0}}>⚡</div>
+          <div>
+            <div style={{fontSize:17,fontWeight:600}}>NikeMPx Batch Dashboard</div>
+            <div style={{fontSize:11,color:C.hint}}>o9 Materials Planning · Gmail-sourced · Mar 17, 2026</div>
+          </div>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:6,background:C.s1,border:`1px solid ${C.b1}`,
+          borderRadius:10,padding:"6px 12px"}}>
+          <span style={{width:7,height:7,borderRadius:"50%",background:C.ok,display:"inline-block"}}/>
+          <span style={{fontSize:11,color:C.muted}}>{RAW.length} runs loaded</span>
+        </div>
+      </div>
+
+      {/* ── date range bar ── */}
+      <div style={{background:C.s1,border:`1px solid ${C.b1}`,borderRadius:14,padding:"12px 16px",marginBottom:18}}>
+        <div style={{fontSize:11,color:C.hint,marginBottom:9,textTransform:"uppercase",letterSpacing:".06em"}}>Date range</div>
+        <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+          <div style={{display:"flex",alignItems:"center",gap:7}}>
+            <span style={{fontSize:12,color:C.muted}}>From</span>
+            <input type="date" value={from} max={to} onChange={e=>setFrom(e.target.value)}
+              style={{background:C.s2,border:`1px solid ${C.b2}`,color:C.text,borderRadius:8,
+                padding:"6px 10px",fontSize:12,fontFamily:"inherit",outline:"none",colorScheme:"dark"}}/>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:7}}>
+            <span style={{fontSize:12,color:C.muted}}>To</span>
+            <input type="date" value={to} min={from} onChange={e=>setTo(e.target.value)}
+              style={{background:C.s2,border:`1px solid ${C.b2}`,color:C.text,borderRadius:8,
+                padding:"6px 10px",fontSize:12,fontFamily:"inherit",outline:"none",colorScheme:"dark"}}/>
+          </div>
+          <div style={{display:"flex",gap:5}}>
+            {[["7d","7d"],["30d","30d"],["90d","90d"]].map(([k,l])=>(
+              <button key={k} onClick={()=>{ const d=new Date(),f=new Date();
+                f.setDate(d.getDate()-(k==="7d"?7:k==="30d"?30:90));
+                setFrom(fmt(f));setTo(fmt(d)); }}
+                style={{background:C.s2,border:`1px solid ${C.b2}`,color:C.muted,borderRadius:8,
+                  padding:"5px 10px",fontSize:11,fontFamily:"inherit",cursor:"pointer"}}>
+                {l}
+              </button>
+            ))}
+          </div>
+          <span style={{fontSize:12,color:C.hint,marginLeft:"auto"}}>{filtered.length} runs in range</span>
+        </div>
+      </div>
+
+      {/* ── KPIs ── */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:18}}>
+        {[
+          {l:"Total runs",    v:filtered.length,       sub:`${from} → ${to}`,  c:C.accent, icon:"◈", spark:null},
+          {l:"Weekly avg",    v:wAvg?fmtM(wAvg):"—",   sub:`${wRuns.length} runs`, c:C.weekly, icon:"◑", spark:wSpark},
+          {l:"Midweek avg",   v:mAvg?fmtM(mAvg):"—",   sub:`${mRuns.length} runs`, c:C.mid,    icon:"◐", spark:mSpark},
+          {l:"On-time rate",  v:`${pct}%`,             sub:`${delayed} delayed`,c:delayed>0?C.del:C.ok, icon:"◎", spark:null},
+        ].map(k=>(
+          <div key={k.l} style={{background:C.s1,border:`1px solid ${C.b1}`,borderTop:`2px solid ${k.c}`,
+            borderRadius:12,padding:"14px 16px"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+              <span style={{fontSize:11,color:C.hint}}>{k.l}</span>
+              {k.spark?.length>=2
+                ? <Spark data={k.spark} color={k.c}/>
+                : <span style={{fontSize:15,color:k.c}}>{k.icon}</span>}
+            </div>
+            <div style={{fontSize:22,fontWeight:600,color:C.text,lineHeight:1,marginBottom:4}}>{k.v}</div>
+            <div style={{fontSize:11,color:C.hint}}>{k.sub}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* ── chart ── */}
+      <div style={{background:C.s1,border:`1px solid ${C.b1}`,borderRadius:14,marginBottom:18,overflow:"hidden"}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",
+          padding:"11px 16px",borderBottom:`1px solid ${C.b1}`}}>
+          <div style={{display:"flex",gap:2}}>
+            {[{k:"trend",l:"Trend"},{k:"stats",l:"Stats"}].map(t=>(
+              <button key={t.k} onClick={()=>setChartTab(t.k)}
+                style={{background:chartTab===t.k?C.s3:"none",border:"none",color:chartTab===t.k?C.text:C.muted,
+                  borderRadius:8,padding:"5px 12px",fontSize:12,cursor:"pointer",fontFamily:"inherit",transition:"all .12s"}}>
+                {t.l}
+              </button>
+            ))}
+          </div>
+          <div style={{display:"flex",gap:16}}>
+            {[[C.weekly,"Weekly"],[C.mid,"Midweek"],[C.egress,"Egress"]].map(([col,lbl])=>(
+              <span key={lbl} style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:C.muted}}>
+                <span style={{width:14,height:2.5,background:col,borderRadius:2,display:"inline-block"}}/>{lbl}
+              </span>
+            ))}
+          </div>
+        </div>
+        <div style={{padding:"10px 8px 8px"}}>
+          {chartTab==="trend" && <TrendChart runs={filtered}/>}
+          {chartTab==="stats" && (
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:20,padding:"10px 16px 14px"}}>
+              <div>
+                <div style={{fontSize:11,color:C.hint,marginBottom:8,textTransform:"uppercase",letterSpacing:".05em"}}>Avg runtime</div>
+                {[{l:"Weekly",v:wAvg,mx:1200,c:C.weekly},{l:"Midweek",v:mAvg,mx:500,c:C.mid}].filter(b=>b.v).map(b=>(
+                  <div key={b.l} style={{marginBottom:10}}>
+                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                      <span style={{fontSize:12,color:C.muted}}>{b.l}</span>
+                      <span style={{fontSize:12,color:C.text,fontWeight:500}}>{fmtM(b.v)}</span>
+                    </div>
+                    <div style={{height:5,background:"rgba(255,255,255,0.06)",borderRadius:3}}>
+                      <div style={{width:`${Math.round((b.v/b.mx)*100)}%`,height:"100%",background:b.c,borderRadius:3}}/>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div>
+                <div style={{fontSize:11,color:C.hint,marginBottom:8,textTransform:"uppercase",letterSpacing:".05em"}}>Status</div>
+                {[{l:"On time",v:ontime,c:C.ok},{l:"Delayed",v:delayed,c:C.del}].map(b=>(
+                  <div key={b.l} style={{marginBottom:10}}>
+                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                      <span style={{fontSize:12,color:C.muted}}>{b.l}</span>
+                      <span style={{fontSize:12,color:b.c,fontWeight:500}}>{b.v}</span>
+                    </div>
+                    <div style={{height:5,background:"rgba(255,255,255,0.06)",borderRadius:3}}>
+                      <div style={{width:`${filtered.length?Math.round((b.v/filtered.length)*100):0}%`,height:"100%",background:b.c,borderRadius:3}}/>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div>
+                <div style={{fontSize:11,color:C.hint,marginBottom:8,textTransform:"uppercase",letterSpacing:".05em"}}>Env split</div>
+                {["Prod","PreProd"].map(e=>{
+                  const n=filtered.filter(r=>r.env===e).length; if(!n) return null;
+                  const col=e==="Prod"?C.weekly:C.pp;
+                  return (
+                    <div key={e} style={{marginBottom:10}}>
+                      <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                        <span style={{fontSize:12,color:C.muted}}>{e}</span>
+                        <span style={{fontSize:12,color:col,fontWeight:500}}>{n}</span>
+                      </div>
+                      <div style={{height:5,background:"rgba(255,255,255,0.06)",borderRadius:3}}>
+                        <div style={{width:`${Math.round((n/filtered.length)*100)}%`,height:"100%",background:col,borderRadius:3}}/>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── table ── */}
+      <div style={{background:C.s1,border:`1px solid ${C.b1}`,borderRadius:14,overflow:"hidden"}}>
+        {/* toolbar */}
+        <div style={{padding:"11px 14px",borderBottom:`1px solid ${C.b1}`,
+          display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+          {/* type tabs */}
+          <div style={{display:"flex",gap:2,background:C.bg,borderRadius:10,padding:2}}>
+            {[["all","All"],["Weekly","Weekly"],["Midweek","Midweek"]].map(([v,l])=>(
+              <button key={v} onClick={()=>setType(v)}
+                style={{background:type===v?C.s3:"none",border:"none",color:type===v?C.text:C.muted,
+                  borderRadius:8,padding:"6px 14px",fontSize:13,cursor:"pointer",fontFamily:"inherit",
+                  transition:"all .12s",fontWeight:type===v?500:400}}>
+                {l}
+              </button>
+            ))}
+          </div>
+          <div style={{marginLeft:"auto",display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+            {/* search */}
+            <div style={{position:"relative"}}>
+              <span style={{position:"absolute",left:9,top:"50%",transform:"translateY(-50%)",color:C.hint,fontSize:13,pointerEvents:"none"}}>⌕</span>
+              <input placeholder="Search…" value={search} onChange={e=>setSearch(e.target.value)}
+                style={{background:C.s2,border:`1px solid ${C.b2}`,color:C.text,borderRadius:8,
+                  padding:"6px 10px 6px 28px",fontSize:12,fontFamily:"inherit",outline:"none",
+                  width:170,colorScheme:"dark"}}/>
+            </div>
+            {sel(env,setEnv,[["all","All envs"],["Prod","Prod"],["PreProd","PreProd"]])}
+            {sel(status,setStatus,[["all","All status"],["on-time","On time"],["delayed","Delayed"]])}
+            {sel(sort,setSort,[["date-desc","Latest first"],["date-asc","Oldest first"],["dur-desc","Longest first"],["dur-asc","Shortest first"]])}
+          </div>
+        </div>
+        {/* col headers */}
+        <div style={{display:"grid",gridTemplateColumns:"90px 72px 148px 148px 90px 68px 68px 24px",
+          gap:6,padding:"7px 16px",background:C.s2,borderBottom:`1px solid ${C.b1}`}}>
+          {["Run date","Env","Start (UTC)","End (UTC)","Duration","Type","Status",""].map((h,i)=>(
+            <div key={i} style={{fontSize:11,fontWeight:500,color:C.hint}}>{h}</div>
+          ))}
+        </div>
+        {/* rows */}
+        {filtered.length===0
+          ? <div style={{padding:"40px 16px",textAlign:"center",color:C.hint,fontSize:13}}>No runs match your filters.</div>
+          : filtered.map((r,i)=><RunRow key={r.id} run={r} isLast={i===filtered.length-1}/>)
+        }
+        {/* footer */}
+        <div style={{padding:"9px 16px",borderTop:`1px solid ${C.b1}`,display:"flex",justifyContent:"space-between"}}>
+          <span style={{fontSize:11,color:C.hint}}>Showing {filtered.length} of {RAW.length} total runs</span>
+          <span style={{fontSize:11,color:C.hint}}>prodnike / preprodnike @o9solutions.com · Gmail</span>
+        </div>
+      </div>
+    </div>
+  );
+}
